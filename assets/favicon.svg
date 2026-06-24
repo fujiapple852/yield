@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="US Treasury Yield Curve icon">
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="#249af3"/>
+  <rect x="76" y="76" width="360" height="360" rx="76" fill="#ffffff"/>
+  <path d="M116 344h280M116 276h280M116 208h280M116 140h280M116 116v280M186 116v280M256 116v280M326 116v280M396 116v280" stroke="#d9e2ec" stroke-width="8" stroke-linecap="round"/>
+  <path d="M116 340c34-34 65-52 94-54 36-3 55 18 87 0 39-21 42-77 87-128" fill="none" stroke="#1175c6" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="116" cy="340" r="18" fill="#249af3" stroke="#ffffff" stroke-width="8"/>
+  <circle cx="210" cy="286" r="18" fill="#249af3" stroke="#ffffff" stroke-width="8"/>
+  <circle cx="297" cy="286" r="18" fill="#249af3" stroke="#ffffff" stroke-width="8"/>
+  <circle cx="384" cy="158" r="18" fill="#249af3" stroke="#ffffff" stroke-width="8"/>
+</svg>

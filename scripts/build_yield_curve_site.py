@@ -201,7 +201,14 @@ def write_html(rows, output_dir):
   <meta name="keywords" content="{html.escape(page_keywords)}">
   <meta name="author" content="FujiApple">
   <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#249af3">
+  <meta name="apple-mobile-web-app-title" content="Yield Curve">
   <link rel="canonical" href="{html.escape(canonical_url)}">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32x32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="assets/favicon-16x16.png" sizes="16x16" type="image/png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+  <link rel="manifest" href="assets/site.webmanifest">
   <meta property="og:type" content="website">
   <meta property="og:title" content="{html.escape(page_title)}">
   <meta property="og:description" content="{html.escape(page_description)}">
