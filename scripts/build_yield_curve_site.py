@@ -17,11 +17,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "public"
 DEFAULT_DATA_FILE = ROOT / "data" / "us_treasury_yield_curve_history.csv"
+DEFAULT_PCE_DATA_FILE = ROOT / "data" / "us_pce_price_index.csv"
 DEFAULT_ASSETS_DIR = ROOT / "assets"
 DATA_URL = (
     "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml"
     "?data=daily_treasury_yield_curve&field_tdr_date_value={year}"
 )
+PCE_SERIES = "PCEPI"
+PCE_DATA_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 
 MATURITIES = [
     ("1M", "BC_1MONTH"),
@@ -92,7 +95,34 @@ def fetch_years(start_year=1990, end_year=None):
     return all_rows
 
 
+def fetch_pce_rows(start_date=None):
+    url = PCE_DATA_URL.format(series=PCE_SERIES)
+    if start_date:
+        url = f"{url}&cosd={start_date}"
+    req = urllib.request.Request(url, headers={"User-Agent": "codex-yield-curve-fetcher/1.0"})
+    with urllib.request.urlopen(req, timeout=60) as response:
+        payload = response.read().decode("utf-8")
+
+    rows = []
+    reader = csv.DictReader(payload.splitlines())
+    expected = ["observation_date", PCE_SERIES]
+    if reader.fieldnames != expected:
+        raise SystemExit(f"Unexpected FRED CSV header for {PCE_SERIES}: {reader.fieldnames}")
+    for record in reader:
+        value = parse_float(record[PCE_SERIES])
+        if value is not None:
+            rows.append({"date": record["observation_date"], "value": value})
+    return rows
+
+
 def merge_rows(existing_rows, fetched_rows):
+    by_date = {row["date"]: row for row in existing_rows}
+    for row in fetched_rows:
+        by_date[row["date"]] = row
+    return [by_date[day] for day in sorted(by_date)]
+
+
+def merge_pce_rows(existing_rows, fetched_rows):
     by_date = {row["date"]: row for row in existing_rows}
     for row in fetched_rows:
         by_date[row["date"]] = row
@@ -115,6 +145,22 @@ def read_csv(path):
                     "rates": [parse_float(record[label]) for label, _ in MATURITIES],
                 }
             )
+    return rows
+
+
+def read_pce_csv(path):
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        expected = ["date", PCE_SERIES]
+        if reader.fieldnames != expected:
+            raise SystemExit(f"Unexpected CSV header in {path}: {reader.fieldnames}")
+        rows = []
+        for record in reader:
+            value = parse_float(record[PCE_SERIES])
+            if value is not None:
+                rows.append({"date": record["date"], "value": value})
     return rows
 
 
@@ -156,11 +202,28 @@ def write_csv(rows, path):
     return path
 
 
+def write_pce_csv(rows, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(["date", PCE_SERIES])
+        for row in rows:
+            writer.writerow([row["date"], f"{row['value']:.3f}"])
+    return path
+
+
+def pce_fetch_start(existing_rows):
+    if not existing_rows:
+        return None
+    last_year = int(existing_rows[-1]["date"][:4])
+    return f"{max(1959, last_year - 1)}-01-01"
+
+
 def js_json(value):
     return json.dumps(value, separators=(",", ":"))
 
 
-def write_html(rows, output_dir):
+def write_html(rows, pce_rows, output_dir):
     labels = [label for label, _ in MATURITIES]
     page_title = "US Treasury Yield Curve History"
     page_description = (
@@ -178,6 +241,8 @@ def write_html(rows, output_dir):
     meta = {
         "source": "U.S. Department of the Treasury Daily Treasury Par Yield Curve Rates",
         "sourceUrl": DATA_URL.format(year=date.today().year),
+        "pceSource": "FRED Personal Consumption Expenditures: Chain-type Price Index",
+        "pceSourceUrl": "https://fred.stlouisfed.org/series/PCEPI",
         "generatedOn": date.today().isoformat(),
         "firstDate": rows[0]["date"],
         "lastDate": rows[-1]["date"],
@@ -188,6 +253,8 @@ def write_html(rows, output_dir):
     }
     dates = [row["date"] for row in rows]
     rates = [row["rates"] for row in rows]
+    pce_dates = [row["date"] for row in pce_rows]
+    pce_values = [row["value"] for row in pce_rows]
     coverage_text = "; ".join(
         f"{item['label']} {item['first']} to {item['last']}" for item in meta["coverage"] if item["first"]
     )
@@ -429,13 +496,12 @@ def write_html(rows, output_dir):
     .hovercard {{
       position: absolute;
       pointer-events: none;
-      transform: translate(-50%, calc(-100% - 12px));
       background: rgba(32, 36, 42, 0.92);
       color: #fff;
       border-radius: 8px;
       padding: 7px 9px;
       font-size: 0.82rem;
-      white-space: nowrap;
+      white-space: pre-line;
       opacity: 0;
       transition: opacity 120ms ease;
     }}
@@ -523,6 +589,17 @@ def write_html(rows, output_dir):
       line-height: 1.4;
     }}
 
+    .metrics + .note {{
+      margin-top: 9px;
+    }}
+
+    .note a {{
+      color: var(--accent-dark);
+      text-decoration: none;
+    }}
+
+    .note a:hover {{ text-decoration: underline; }}
+
     @media (max-width: 900px) {{
       .stats {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .controls {{ grid-template-columns: auto minmax(0, 1fr) auto; }}
@@ -608,6 +685,14 @@ def write_html(rows, output_dir):
           </div>
         </section>
         <section class="panel">
+          <h2>PCE</h2>
+          <div class="metrics">
+            <div class="metric"><span>YoY rate</span><strong id="pceValue"></strong></div>
+            <div class="metric"><span>Observation</span><strong id="pceDate"></strong></div>
+          </div>
+          <div class="note">Year-over-year change in the latest available <a href="{html.escape(meta['pceSourceUrl'])}">PCE price index</a> observation on or before the selected date.</div>
+        </section>
+        <section class="panel">
           <h2>Coverage</h2>
           <div class="note">Missing values indicate that the selected tenor is blank or unavailable in the Treasury yield curve feed for that date.</div>
         </section>
@@ -619,6 +704,8 @@ def write_html(rows, output_dir):
     const META = {js_json(meta)};
     const DATES = {js_json(dates)};
     const RATES = {js_json(rates)};
+    const PCE_DATES = {js_json(pce_dates)};
+    const PCE_VALUES = {js_json(pce_values)};
     const LABELS = META.maturities;
     const GLOBAL_DOMAIN = META.domain;
     const X_POS = LABELS.map((_, i) => i);
@@ -638,6 +725,8 @@ def write_html(rows, output_dir):
     const spread3m10y = document.getElementById('spread3m10y');
     const lowValue = document.getElementById('lowValue');
     const highValue = document.getElementById('highValue');
+    const pceValue = document.getElementById('pceValue');
+    const pceDate = document.getElementById('pceDate');
     const downloadButton = document.getElementById('download');
 
     let index = DATES.length - 1;
@@ -656,6 +745,17 @@ def write_html(rows, output_dir):
       return sign + bps + ' bps';
     }}
 
+    function fmtPce(value) {{
+      return fmt(value);
+    }}
+
+    function fmtSignedBps(value) {{
+      if (value == null) return 'n/a';
+      const bps = Math.round(value * 100);
+      const sign = bps > 0 ? '+' : '';
+      return sign + bps + ' bps';
+    }}
+
     function localDate(dateText) {{
       const [y, m, d] = dateText.split('-').map(Number);
       return new Date(y, m - 1, d).toLocaleDateString(undefined, {{
@@ -663,6 +763,43 @@ def write_html(rows, output_dir):
         month: 'short',
         day: 'numeric'
       }});
+    }}
+
+    function localMonth(dateText) {{
+      const [y, m] = dateText.split('-').map(Number);
+      return new Date(y, m - 1, 1).toLocaleDateString(undefined, {{
+        year: 'numeric',
+        month: 'short'
+      }});
+    }}
+
+    function latestObservationIndex(observationDates, dateText) {{
+      if (!observationDates.length || dateText < observationDates[0]) return -1;
+      let lo = 0;
+      let hi = observationDates.length - 1;
+      while (lo < hi) {{
+        const mid = Math.ceil((lo + hi) / 2);
+        if (observationDates[mid] <= dateText) lo = mid;
+        else hi = mid - 1;
+      }}
+      return lo;
+    }}
+
+    function clamp(value, min, max) {{
+      return Math.max(min, Math.min(max, value));
+    }}
+
+    function pceYoyForDate(dateText) {{
+      const pceIndex = latestObservationIndex(PCE_DATES, dateText);
+      if (pceIndex < 0) return null;
+      const [year, month] = PCE_DATES[pceIndex].split('-');
+      const priorDate = String(Number(year) - 1).padStart(4, '0') + '-' + month + '-01';
+      const priorIndex = PCE_DATES.indexOf(priorDate);
+      if (priorIndex < 0 || PCE_VALUES[priorIndex] == null || PCE_VALUES[priorIndex] === 0) return null;
+      return {{
+        date: PCE_DATES[pceIndex],
+        value: ((PCE_VALUES[pceIndex] / PCE_VALUES[priorIndex]) - 1) * 100
+      }};
     }}
 
     function resizeCanvas() {{
@@ -676,7 +813,9 @@ def write_html(rows, output_dir):
 
     function getDomain(row) {{
       if (!autoScale.checked) return GLOBAL_DOMAIN;
+      const pce = pceYoyForDate(DATES[index]);
       const values = row.filter(v => v != null);
+      if (pce) values.push(pce.value);
       let low = Math.min(...values);
       let high = Math.max(...values);
       if (high - low < 0.8) {{
@@ -768,6 +907,40 @@ def write_html(rows, output_dir):
       ctx.stroke();
     }}
 
+    function drawPceLine(width, scale, selectedDate) {{
+      const pce = pceYoyForDate(selectedDate);
+      if (!pce) return;
+
+      const y = scale.y(pce.value);
+      ctx.save();
+      ctx.strokeStyle = '#1f8f55';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 6]);
+      ctx.beginPath();
+      ctx.moveTo(scale.margin.left, y);
+      ctx.lineTo(width - scale.margin.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const label = 'PCE YoY ' + fmtPce(pce.value);
+      ctx.font = '12px Inter, system-ui, sans-serif';
+      const labelWidth = ctx.measureText(label).width + 14;
+      const labelX = Math.max(scale.margin.left + 8, width - scale.margin.right - labelWidth - 8);
+      const labelY = Math.max(scale.margin.top + 6, Math.min(y - 25, scale.margin.top + scale.innerH - 30));
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.strokeStyle = '#b7d6c3';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(labelX, labelY, labelWidth, 22, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#1f6f43';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, labelX + 7, labelY + 11);
+      ctx.restore();
+    }}
+
     function draw() {{
       const rect = canvas.getBoundingClientRect();
       const width = rect.width;
@@ -786,6 +959,8 @@ def write_html(rows, output_dir):
           y: scale.y(value)
         }})
         .filter(Boolean);
+
+      drawPceLine(width, scale, DATES[index]);
 
       ctx.save();
       ctx.shadowColor = 'rgba(36, 154, 243, 0.18)';
@@ -807,9 +982,11 @@ def write_html(rows, output_dir):
         ctx.stroke();
       }}
 
-      if (hover) {{
+      if (hover != null) {{
         const p = pointCache[hover];
         if (p) {{
+          const pce = pceYoyForDate(DATES[index]);
+          const pceSpread = pce ? p.value - pce.value : null;
           ctx.strokeStyle = 'rgba(17, 117, 198, 0.32)';
           ctx.lineWidth = 1;
           ctx.beginPath();
@@ -820,10 +997,16 @@ def write_html(rows, output_dir):
           ctx.beginPath();
           ctx.arc(p.x, p.y, 7.3, 0, Math.PI * 2);
           ctx.fill();
-          hovercard.style.left = p.x + 'px';
-          hovercard.style.top = p.y + 'px';
-          hovercard.textContent = `${{p.label}}  ${{fmt(p.value)}}`;
+          hovercard.textContent = `${{p.label}}  ${{fmt(p.value)}} (${{fmtSignedBps(pceSpread)}})`;
           hovercard.style.opacity = 1;
+          const cardWidth = hovercard.offsetWidth;
+          const cardHeight = hovercard.offsetHeight;
+          const cardLeft = clamp(p.x - cardWidth / 2, 8, width - cardWidth - 8);
+          let cardTop = p.y - cardHeight - 12;
+          if (cardTop < 8) cardTop = p.y + 12;
+          cardTop = clamp(cardTop, 8, height - cardHeight - 8);
+          hovercard.style.left = cardLeft + 'px';
+          hovercard.style.top = cardTop + 'px';
         }}
       }} else {{
         hovercard.style.opacity = 0;
@@ -854,6 +1037,10 @@ def write_html(rows, output_dir):
       spread3m10y.textContent = threeM == null || tenY == null ? 'n/a' : fmtSpread(tenY - threeM);
       lowValue.textContent = fmt(low);
       highValue.textContent = fmt(high);
+
+      const pce = pceYoyForDate(date);
+      pceValue.textContent = pce ? fmtPce(pce.value) : 'n/a';
+      pceDate.textContent = pce ? localMonth(pce.date) : 'n/a';
 
       draw();
     }}
@@ -981,6 +1168,12 @@ def main():
         help="CSV history file to update incrementally. Defaults to ./data/us_treasury_yield_curve_history.csv.",
     )
     parser.add_argument(
+        "--pce-data-file",
+        type=Path,
+        default=DEFAULT_PCE_DATA_FILE,
+        help="PCE price index CSV history file to update incrementally. Defaults to ./data/us_pce_price_index.csv.",
+    )
+    parser.add_argument(
         "--start-year",
         type=int,
         default=1990,
@@ -1001,8 +1194,10 @@ def main():
 
     output_dir = args.output_dir.expanduser().resolve()
     data_file = args.data_file.expanduser().resolve()
+    pce_data_file = args.pce_data_file.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     existing_rows = [] if args.full_refresh else read_csv(data_file)
+    existing_pce_rows = [] if args.full_refresh else read_pce_csv(pce_data_file)
     if existing_rows:
         last_year = int(existing_rows[-1]["date"][:4])
         fetch_start_year = max(args.start_year, last_year)
@@ -1012,17 +1207,31 @@ def main():
     rows = merge_rows(existing_rows, fetched_rows)
     if not rows:
         raise SystemExit("No data fetched.")
+
+    pce_start_date = None if args.full_refresh else pce_fetch_start(existing_pce_rows)
+    print(f"Fetching {PCE_SERIES}...", file=sys.stderr, flush=True)
+    fetched_pce_rows = fetch_pce_rows(start_date=pce_start_date)
+    pce_rows = merge_pce_rows(existing_pce_rows, fetched_pce_rows)
+    if not pce_rows:
+        raise SystemExit("No PCE data fetched.")
+
     data_path = write_csv(rows, data_file)
-    html_path = write_html(rows, output_dir)
+    pce_data_path = write_pce_csv(pce_rows, pce_data_file)
+    html_path = write_html(rows, pce_rows, output_dir)
     csv_path = write_csv(rows, output_dir / "us_treasury_yield_curve_history.csv")
+    pce_csv_path = write_pce_csv(pce_rows, output_dir / "us_pce_price_index.csv")
     copied_assets = copy_assets(output_dir)
     print(f"Fetched years: {fetch_start_year} to {args.end_year or date.today().year}")
+    print(f"Fetched {PCE_SERIES} from {pce_start_date or 'start'}")
     print(f"Wrote {data_path}")
+    print(f"Wrote {pce_data_path}")
     print(f"Wrote {html_path}")
     print(f"Wrote {csv_path}")
+    print(f"Wrote {pce_csv_path}")
     for asset_path in copied_assets:
         print(f"Wrote {asset_path}")
     print(f"Rows: {len(rows)} from {rows[0]['date']} to {rows[-1]['date']}")
+    print(f"PCE rows: {len(pce_rows)} from {pce_rows[0]['date']} to {pce_rows[-1]['date']}")
 
 
 if __name__ == "__main__":

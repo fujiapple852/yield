@@ -34,14 +34,14 @@ jobs:
 
       - name: Commit updated data
         run: |
-          if git diff --quiet -- data/us_treasury_yield_curve_history.csv; then
+          if git diff --quiet -- data && [ -z "$(git ls-files --others --exclude-standard data)" ]; then
             echo "No data changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/us_treasury_yield_curve_history.csv
-          git commit -m "Update yield curve data [skip ci]"
+          git add data/*.csv
+          git commit -m "Update site data [skip ci]"
           git push
 
       - name: Configure Pages
