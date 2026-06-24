@@ -22,7 +22,7 @@ The CSV under `data/` is the persisted history. Normal builds read it first and 
 
 ## Deploy
 
-GitHub Actions runs `.github/workflows/deploy-pages.yml` on weekdays at 23:15 UTC and on manual dispatch. Treasury says yield curve rates are usually available by 6:00 PM Eastern Time each trading day, so this schedule runs after that publication window year-round. The workflow fetches the latest Treasury data incrementally, commits `data/us_treasury_yield_curve_history.csv` when it changes, builds the static site into `public/`, uploads the Pages artifact, and deploys it with GitHub Pages.
+GitHub Actions runs `.github/workflows/deploy-pages.yml` on weekdays at 23:05 UTC and on manual dispatch. Treasury says yield curve rates are usually available by 6:00 PM Eastern Time each trading day; that is 22:00 UTC during daylight saving time and 23:00 UTC during standard time, so this schedule runs shortly after the publication window year-round. The workflow fetches the latest Treasury data incrementally, commits `data/us_treasury_yield_curve_history.csv` when it changes, builds the static site into `public/`, uploads the Pages artifact, and deploys it with GitHub Pages.
 
 In the repository settings, set Pages to use **GitHub Actions** as the source.
 
