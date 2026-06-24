@@ -601,8 +601,8 @@ def write_html(rows, output_dir):
         <section class="panel">
           <h2>Shape</h2>
           <div class="metrics">
-            <div class="metric"><span>2Y / 10Y</span><strong id="spread2s10s"></strong></div>
-            <div class="metric"><span>3M / 10Y</span><strong id="spread3m10y"></strong></div>
+            <div class="metric"><span>2s10s slope</span><strong id="spread2s10s"></strong></div>
+            <div class="metric"><span>3m10y slope</span><strong id="spread3m10y"></strong></div>
             <div class="metric"><span>Low</span><strong id="lowValue"></strong></div>
             <div class="metric"><span>High</span><strong id="highValue"></strong></div>
           </div>
@@ -651,8 +651,9 @@ def write_html(rows, output_dir):
 
     function fmtSpread(value) {{
       if (value == null) return 'n/a';
-      const sign = value > 0 ? '+' : '';
-      return sign + value.toFixed(2) + ' pp';
+      const bps = Math.round(value * 100);
+      const sign = bps > 0 ? '+' : '';
+      return sign + bps + ' bps';
     }}
 
     function localDate(dateText) {{
