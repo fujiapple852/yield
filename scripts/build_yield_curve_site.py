@@ -174,6 +174,7 @@ def write_html(rows, output_dir):
     canonical_url = "https://fujiapple852.github.io/yield/"
     preview_image_url = f"{canonical_url}assets/screenshot.png"
     repo_url = "https://github.com/fujiapple852/yield"
+    analytics_pixel_url = "https://cloud.umami.is/p/aBmsBOhEl"
     meta = {
         "source": "U.S. Department of the Treasury Daily Treasury Par Yield Curve Rates",
         "sourceUrl": DATA_URL.format(year=date.today().year),
@@ -241,6 +242,14 @@ def write_html(rows, output_dir):
       margin: 0;
       background: var(--bg);
       color: var(--ink);
+    }}
+
+    .analytics-pixel {{
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
     }}
 
     .app {{
@@ -541,6 +550,7 @@ def write_html(rows, output_dir):
   </style>
 </head>
 <body>
+  <img class="analytics-pixel" src="{html.escape(analytics_pixel_url)}" alt="" width="1" height="1" aria-hidden="true">
   <div class="app">
     <header>
       <div class="topline">
